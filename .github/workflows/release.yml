@@ -17,18 +17,12 @@ permissions:
   contents: write
 
 jobs:
-  build-android-web:
-    name: Build Android APK & Web Release
+  build-web:
+    name: Build Web Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -42,12 +36,6 @@ jobs:
       - name: Run Tests
         run: flutter test
 
-      - name: Build Android Release APK
-        run: flutter build apk --release
-
-      - name: Prepare Android APK Artifact
-        run: cp build/app/outputs/flutter-apk/app-release.apk eventsphere-android.apk
-
       - name: Build Web Release
         run: flutter build web --release
 
@@ -56,12 +44,6 @@ jobs:
           cd build/web
           zip -r ../../eventsphere-web.zip .
           cd ../..
-
-      - name: Upload Android APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: eventsphere-android
-          path: eventsphere-android.apk
 
       - name: Upload Web Artifact
         uses: actions/upload-artifact@v4
@@ -101,9 +83,43 @@ jobs:
           name: eventsphere-windows
           path: eventsphere-windows.zip
 
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Android Release APK
+        run: flutter build apk --release
+
+      - name: Prepare Android APK Artifact
+        run: cp build/app/outputs/flutter-apk/app-release.apk eventsphere-android.apk
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventsphere-android
+          path: eventsphere-android.apk
+
   create-release:
     name: Publish GitHub Release
-    needs: [build-android-web, build-windows]
+    needs: [build-web, build-windows, build-android]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
