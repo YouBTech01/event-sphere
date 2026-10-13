@@ -1,0 +1,166 @@
+name: Multi-Platform Release Builds
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag Name (e.g., v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-web:
+    name: Build Android APK & Web Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Run Tests
+        run: flutter test
+
+      - name: Build Android Release APK
+        run: flutter build apk --release
+
+      - name: Prepare Android APK Artifact
+        run: cp build/app/outputs/flutter-apk/app-release.apk eventsphere-android.apk
+
+      - name: Build Web Release
+        run: flutter build web --release
+
+      - name: Package Web Release
+        run: |
+          cd build/web
+          zip -r ../../eventsphere-web.zip .
+          cd ../..
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventsphere-android
+          path: eventsphere-android.apk
+
+      - name: Upload Web Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventsphere-web
+          path: eventsphere-web.zip
+
+  build-windows:
+    name: Build Windows Desktop Release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Windows Release
+        run: flutter build windows --release
+
+      - name: Package Windows Release
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath eventsphere-windows.zip
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventsphere-windows
+          path: eventsphere-windows.zip
+
+  create-release:
+    name: Publish GitHub Release
+    needs: [build-android-web, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Android Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eventsphere-android
+
+      - name: Download Web Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eventsphere-web
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eventsphere-windows
+
+      - name: Determine Release Tag
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v1.0.0"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release with All Device Builds
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: "EventSphere Release ${{ steps.vars.outputs.tag_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 🌐 EventSphere Multi-Device Release Builds
+
+            Automated production releases for all target devices and operating systems:
+
+            - 📱 **Android**: `eventsphere-android.apk` (Production APK for Android devices)
+            - 💻 **Windows Desktop**: `eventsphere-windows.zip` (Portable 64-bit Windows Desktop application)
+            - 🌐 **Web Application**: `eventsphere-web.zip` (Production Web build ready for hosting)
+
+            ### ✨ Highlights
+            - 🖥️ **Responsive Design**: Full desktop, tablet, and mobile support.
+            - 📑 **Collapsible Sidebar**: Modern collapsible navigation drawer on desktop/web.
+            - 🔍 **Live Search & Filter**: Real-time Firestore query filters.
+            - 🌓 **Dynamic Theming**: Light, Dark, and System theme modes.
+          files: |
+            eventsphere-android.apk
+            eventsphere-web.zip
+            eventsphere-windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
